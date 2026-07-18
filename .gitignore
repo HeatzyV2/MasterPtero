@@ -1,0 +1,12 @@
+# Secrets & état
+config/install.env
+config/.install_state
+*.log
+
+# OS / éditeurs
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/

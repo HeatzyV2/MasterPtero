@@ -1,0 +1,10 @@
+# Secrets & état local
+install.env
+.install_state
+*.bak
+*.bak.*
+
+# Garder les templates
+!defaults.env
+!ports.conf
+!.gitignore
