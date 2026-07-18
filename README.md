@@ -8,7 +8,7 @@ Compatible avec tous les jeux supportés par Pterodactyl (Minecraft, Rust, FiveM
 
 | Élément | Détail |
 |--------|--------|
-| OS | **Ubuntu 22.04**, **Ubuntu 24.04** ou **Debian 12** |
+| OS | **Ubuntu 22.04**, **Ubuntu 24.04**, **Debian 12** ou **Debian 13** |
 | Accès | Root (`sudo -i`) |
 | RAM | 2 Go min. (4 Go+ recommandé) |
 | Disque | 20 Go+ recommandés |

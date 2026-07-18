@@ -24,11 +24,23 @@ install_docker() {
     chmod a+r /etc/apt/keyrings/docker.gpg
   fi
 
-  local arch
+  local arch docker_codename
   arch="$(dpkg --print-architecture)"
+  docker_codename="${MPS_OS_CODENAME}"
+
+  # Si Docker n'a pas encore de dépôt pour ce codename (ex. trixie récent), fallback bookworm/jammy
+  if ! curl -fsSL "${docker_url}/dists/${docker_codename}/Release" -o /dev/null 2>/dev/null; then
+    if [[ "${MPS_OS_ID}" == "debian" ]]; then
+      log_warn "Docker CE sans dépôt '${docker_codename}' — fallback bookworm"
+      docker_codename="bookworm"
+    else
+      log_warn "Docker CE sans dépôt '${docker_codename}' — fallback jammy"
+      docker_codename="jammy"
+    fi
+  fi
 
   echo \
-    "deb [arch=${arch} signed-by=/etc/apt/keyrings/docker.gpg] ${docker_url} ${MPS_OS_CODENAME} stable" \
+    "deb [arch=${arch} signed-by=/etc/apt/keyrings/docker.gpg] ${docker_url} ${docker_codename} stable" \
     > /etc/apt/sources.list.d/docker.list
 
   apt_update

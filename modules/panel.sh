@@ -12,18 +12,26 @@ PANEL_USER="www-data"
 _panel_install_deps() {
   log_step "Installation des dépendances Panel"
 
-  apt_install software-properties-common curl apt-transport-https ca-certificates gnupg
+  apt_install curl apt-transport-https ca-certificates gnupg
+  # Présent sur Ubuntu ; optionnel sur Debian
+  apt-get install -y software-properties-common >> "${MPS_LOG_FILE}" 2>&1 || true
 
-  # PHP 8.3 (surcharge.org / packages.sury.org)
+  # PHP 8.3 — PPA Ondrej (Ubuntu) / Sury (Debian 12 & 13)
   if [[ "${MPS_OS_ID}" == "ubuntu" ]]; then
     if ! apt-cache show php8.3 &>/dev/null; then
       add-apt-repository -y ppa:ondrej/php >> "${MPS_LOG_FILE}" 2>&1 || true
     fi
   else
-    # Debian 12 — dépôt Sury
+    # Debian 12 (bookworm) / 13 (trixie) — dépôt Sury
     if [[ ! -f /etc/apt/sources.list.d/php.list ]]; then
       curl -fsSL https://packages.sury.org/php/apt.gpg | gpg --dearmor -o /etc/apt/trusted.gpg.d/php.gpg
-      echo "deb https://packages.sury.org/php/ ${MPS_OS_CODENAME} main" > /etc/apt/sources.list.d/php.list
+      local php_codename="${MPS_OS_CODENAME}"
+      # Fallback si codename Sury indisponible
+      if ! curl -fsSL "https://packages.sury.org/php/dists/${php_codename}/Release" -o /dev/null 2>/dev/null; then
+        log_warn "Sury n'a pas de dépôt '${php_codename}' — fallback bookworm"
+        php_codename="bookworm"
+      fi
+      echo "deb https://packages.sury.org/php/ ${php_codename} main" > /etc/apt/sources.list.d/php.list
     fi
   fi
 

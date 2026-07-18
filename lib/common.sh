@@ -252,12 +252,12 @@ detect_os() {
       ;;
     debian)
       case "${MPS_OS_VERSION}" in
-        12*) ;;
-        *) die "Debian ${MPS_OS_VERSION} non supporté. Requis : Debian 12." ;;
+        12*|13*) ;;
+        *) die "Debian ${MPS_OS_VERSION} non supporté. Requis : Debian 12 ou 13." ;;
       esac
       ;;
     *)
-      die "OS non supporté : ${MPS_OS_PRETTY}. Requis : Ubuntu 22.04/24.04 ou Debian 12."
+      die "OS non supporté : ${MPS_OS_PRETTY}. Requis : Ubuntu 22.04/24.04 ou Debian 12/13."
       ;;
   esac
   log_ok "OS détecté : ${MPS_OS_PRETTY}"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # Master Ptero Script — Installateur Pterodactyl Production
-# Compatible : Ubuntu 22.04 / 24.04 · Debian 12
+# Compatible : Ubuntu 22.04 / 24.04 · Debian 12 / 13
 # =============================================================================
 set -euo pipefail
 
