@@ -48,18 +48,77 @@ _panel_install_deps() {
     git unzip zip tar \
     certbot python3-certbot-nginx
 
-  # Composer
+  # Composer (sortie redirigée — l'installeur affiche sinon « Use it: … » puis
+  # systemctl silencieux donne l'impression d'un freeze)
+  export PATH="/usr/local/bin:${PATH}"
   if ! command -v composer &>/dev/null; then
     log_info "Installation de Composer..."
-    curl -fsSL https://getcomposer.org/installer -o /tmp/composer-setup.php
-    php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
+    curl -fsSL https://getcomposer.org/installer -o /tmp/composer-setup.php \
+      || die "Téléchargement de l'installeur Composer impossible"
+    if ! php /tmp/composer-setup.php \
+        --install-dir=/usr/local/bin \
+        --filename=composer \
+        --quiet >> "${MPS_LOG_FILE}" 2>&1; then
+      rm -f /tmp/composer-setup.php
+      die "Échec de l'installation de Composer (voir ${MPS_LOG_FILE})"
+    fi
     rm -f /tmp/composer-setup.php
-    log_ok "Composer installé : $(composer --version 2>/dev/null | head -1)"
+    chmod +x /usr/local/bin/composer 2>/dev/null || true
+    # Évite un éventuel self-update / check réseau au premier appel
+    local composer_ver
+    composer_ver="$(COMPOSER_ALLOW_SUPERUSER=1 composer --version --no-ansi 2>/dev/null | head -1 || true)"
+    log_ok "Composer installé${composer_ver:+ : ${composer_ver}}"
   else
     log_ok "Composer déjà présent"
   fi
 
-  systemctl enable --now php8.3-fpm redis-server mariadb nginx
+  log_info "Activation des services (PHP-FPM, Redis, MariaDB, Nginx)..."
+  _panel_start_services
+}
+
+# Démarre les services un par un avec feedback (évite le freeze silencieux de
+# « systemctl enable --now a b c d » quand MariaDB initialise longtemps).
+_panel_start_services() {
+  local svc candidates unit i ready candidate
+  for svc in php8.3-fpm redis-server mariadb nginx; do
+    candidates=("${svc}")
+    [[ "${svc}" == "mariadb" ]] && candidates+=(mysql)
+    [[ "${svc}" == "redis-server" ]] && candidates+=(redis)
+
+    unit=""
+    for candidate in "${candidates[@]}"; do
+      if systemctl cat "${candidate}.service" &>/dev/null; then
+        unit="${candidate}"
+        break
+      fi
+    done
+
+    if [[ -z "${unit}" ]]; then
+      log_warn "Service introuvable : ${svc}"
+      continue
+    fi
+
+    systemctl enable "${unit}" >> "${MPS_LOG_FILE}" 2>&1 || true
+    log_info "Démarrage de ${unit}..."
+    systemctl start "${unit}" >> "${MPS_LOG_FILE}" 2>&1 || true
+
+    ready=0
+    for ((i = 1; i <= 45; i++)); do
+      if systemctl is-active --quiet "${unit}"; then
+        ready=1
+        break
+      fi
+      sleep 2
+    done
+
+    if [[ "${ready}" -eq 1 ]]; then
+      log_ok "${unit} actif"
+    else
+      systemctl status "${unit}" --no-pager -l >> "${MPS_LOG_FILE}" 2>&1 || true
+      journalctl -u "${unit}" -n 40 --no-pager >> "${MPS_LOG_FILE}" 2>&1 || true
+      die "Le service ${unit} ne démarre pas (timeout ~90s). Voir ${MPS_LOG_FILE}"
+    fi
+  done
 }
 
 # -----------------------------------------------------------------------------
@@ -195,7 +254,9 @@ _panel_composer_migrate() {
 
   # Composer en tant que www-data
   run_cmd_or_die "Composer install" \
-    sudo -u "${PANEL_USER}" composer install --no-dev --optimize-autoloader --no-interaction
+    env COMPOSER_ALLOW_SUPERUSER=1 \
+    sudo -u "${PANEL_USER}" -H \
+    composer install --no-dev --optimize-autoloader --no-interaction --no-ansi
 
   # Clé déjà définie dans .env — regenerer si besoin
   if ! grep -q '^APP_KEY=base64:' .env; then
