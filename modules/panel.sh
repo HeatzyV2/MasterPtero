@@ -201,14 +201,17 @@ _panel_configure_env() {
   local app_key
   app_key="$(generate_app_key)"
 
-  # Remplacements .env
+  # Remplacements .env — toujours quoté (espaces, #, $ dans mdp/noms)
   _env_set() {
-    local key="$1" val="$2"
+    local key="$1" val="$2" escaped line
+    escaped="${val//\\/\\\\}"
+    escaped="${escaped//\"/\\\"}"
+    line="${key}=\"${escaped}\""
     if grep -q "^${key}=" .env; then
-      # Utiliser | comme délimiteur pour éviter conflits avec /
-      sed -i "s|^${key}=.*|${key}=${val}|" .env
+      # Délimiteur | pour éviter les conflits avec /
+      sed -i "s|^${key}=.*|${line}|" .env
     else
-      echo "${key}=${val}" >> .env
+      echo "${line}" >> .env
     fi
   }
 
