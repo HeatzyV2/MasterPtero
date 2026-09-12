@@ -163,7 +163,46 @@ panel_version() {
   if [[ -z "${ver}" && -f "${PTERO}/composer.json" ]]; then
     ver="$(grep -oE '"version"[[:space:]]*:[[:space:]]*"[0-9.]+"' "${PTERO}/composer.json" | grep -oE "[0-9.]+" | head -1 || true)"
   fi
+  # Fallback : package.json du panel
+  if [[ -z "${ver}" && -f "${PTERO}/package.json" ]]; then
+    ver="$(php -r '$j=json_decode(file_get_contents($argv[1]),true); echo $j["version"]??"";' "${PTERO}/package.json" 2>/dev/null || true)"
+  fi
   echo "${ver}"
+}
+
+# Unix Theme v2.71 (README) = Pterodactyl 1.6.6 uniquement.
+# Sur un panel récent, écraser ServerRouter / React casse yarn (xterm, Tailwind /75, etc.).
+check_unix_compat() {
+  local ver major minor
+  ver="$(panel_version)"
+  [[ -n "${ver}" ]] || {
+    warn "Version panel inconnue — poursuite au risque d'échec yarn"
+    return 0
+  }
+  major="${ver%%.*}"
+  minor="${ver#*.}"
+  minor="${minor%%.*}"
+  if [[ "${major}" =~ ^[0-9]+$ && "${minor}" =~ ^[0-9]+$ ]]; then
+    if (( major > 1 )) || (( major == 1 && minor >= 8 )); then
+      cat << EOF
+
+${RED}${BOLD}Unix Theme v2.71 incompatible avec Pterodactyl v${ver}${NC}
+
+Ce zip cible Pterodactyl ${BOLD}1.6.x${NC}. Ton panel est trop récent :
+  - ServerRouter Unix importe d'anciens chemins React
+  - Tailwind / webpack du panel actuel refusent ce mix → yarn build plante
+
+${YELLOW}Solutions :${NC}
+  1. Utiliser ${BOLD}Unix Theme v4.x${NC} (Pterodactyl 1.11 / 1.12) — version achetée à jour
+  2. Ou rester sur le thème / Blueprint actuel
+
+Le panel n'a ${BOLD}pas${NC} été modifié (arrêt avant backup).
+
+EOF
+      fail "Abort : Unix v2.71 ≠ panel v${ver}"
+    fi
+  fi
+  ok "Panel v${ver} — OK pour Unix v2.71 (cible 1.6.x)"
 }
 
 # Webpack du panel (loader-utils MD4) casse sur OpenSSL 3 / Node 17+.
@@ -575,50 +614,19 @@ apply_unix_files() {
   info "Copie des fichiers Unix Theme v2.71..."
   mkdir -p "${PTERO}/public/themes"
 
-  # Ne pas écraser RouteServiceProvider (panel récent incompatible avec celui de Unix 2.71)
+  # Ne jamais écraser le RouteServiceProvider du panel ni des leftovers Blueprint
   rsync -a \
     --exclude 'app/Providers/RouteServiceProvider.php' \
+    --exclude 'app/Providers/Blueprint' \
     "${src}/" "${PTERO}/"
 
   inject_unix_routes
   ok "Fichiers Unix copiés"
 }
 
-run_unix_migrate() {
-  local mig="database/migrations/2021_05_30_141248_create_unix_settings_table.php"
-  if [[ -f "${PTERO}/${mig}" ]]; then
-    info "Migration table unix_settings..."
-    artisan migrate --force --path="${mig}"
-  else
-    warn "Migration Unix introuvable — skip"
-  fi
-}
-
-build_assets() {
-  if [[ "${SKIP_BUILD}" == "1" ]]; then
-    warn "SKIP_BUILD=1 — yarn build ignoré"
-    return 0
-  fi
-  [[ -f "${PTERO}/package.json" ]] || fail "package.json absent — frontend source manquant"
-  ensure_node_yarn
-  info "yarn install (peut prendre quelques minutes)..."
-  (cd "${PTERO}" && yarn)
-  info "yarn build:production (souvent 3–10 min)..."
-  setup_node_env
-  info "NODE_OPTIONS=${NODE_OPTIONS}"
-  (cd "${PTERO}" && yarn build:production)
-  ok "Assets compilés"
-}
-
-clear_caches() {
-  artisan view:clear >/dev/null 2>&1 || true
-  artisan config:clear >/dev/null 2>&1 || true
-  artisan cache:clear >/dev/null 2>&1 || true
-  artisan route:clear >/dev/null 2>&1 || true
-  artisan queue:restart >/dev/null 2>&1 || true
-}
-
 cmd_install() {
+  check_unix_compat
+
   if ! confirm_or_yes "Backup + retrait des thèmes + install Unix v2.71 ?"; then
     info "Annulé."
     exit 0
@@ -655,6 +663,40 @@ cmd_install() {
 
   echo
   print_done_install
+}
+
+run_unix_migrate() {
+  local mig="database/migrations/2021_05_30_141248_create_unix_settings_table.php"
+  if [[ -f "${PTERO}/${mig}" ]]; then
+    info "Migration table unix_settings..."
+    artisan migrate --force --path="${mig}"
+  else
+    warn "Migration Unix introuvable — skip"
+  fi
+}
+
+build_assets() {
+  if [[ "${SKIP_BUILD}" == "1" ]]; then
+    warn "SKIP_BUILD=1 — yarn build ignoré"
+    return 0
+  fi
+  [[ -f "${PTERO}/package.json" ]] || fail "package.json absent — frontend source manquant"
+  ensure_node_yarn
+  info "yarn install (peut prendre quelques minutes)..."
+  (cd "${PTERO}" && yarn)
+  info "yarn build:production (souvent 3–10 min)..."
+  setup_node_env
+  info "NODE_OPTIONS=${NODE_OPTIONS}"
+  (cd "${PTERO}" && yarn build:production)
+  ok "Assets compilés"
+}
+
+clear_caches() {
+  artisan view:clear >/dev/null 2>&1 || true
+  artisan config:clear >/dev/null 2>&1 || true
+  artisan cache:clear >/dev/null 2>&1 || true
+  artisan route:clear >/dev/null 2>&1 || true
+  artisan queue:restart >/dev/null 2>&1 || true
 }
 
 print_done_install() {

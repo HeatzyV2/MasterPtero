@@ -69,6 +69,8 @@ THEME_URL='https://exemple.com/UnixTheme-v2.71.zip' bash /tmp/unix-theme.sh -y
 
 Backups : `/var/backups/pterodactyl-themes/` (5 derniers conservés). Réglages Unix : `/admin/unix`.
 
+**Important :** Unix Theme **v2.71** = Pterodactyl **1.6.x** uniquement. Sur un panel 1.8+ / 1.11 / 1.12 (MasterPtero), le build yarn plante — il faut **Unix v4.x**.
+
 ### Installation manuelle
 
 ```bash
