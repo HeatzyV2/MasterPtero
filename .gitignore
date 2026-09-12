@@ -3,6 +3,10 @@ config/install.env
 config/.install_state
 *.log
 
+# Thèmes payants (licence Unix : ne pas committer le zip)
+assets/*.zip
+*.zip
+
 # OS / éditeurs
 .DS_Store
 Thumbs.db

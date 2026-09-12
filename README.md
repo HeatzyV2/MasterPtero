@@ -46,6 +46,29 @@ apt install -y curl && curl -O -sL https://raw.githubusercontent.com/HeatzyV2/Ma
 
 Le bootstrap télécharge le projet dans `/opt/master-ptero` et lance le menu d’installation.
 
+## Unix Theme v2.71 (one-liner)
+
+Backup du panel, retrait des autres thèmes, install Unix, **restore auto si ça plante**.
+
+Place d’abord le zip sur le VPS (`/root/UnixTheme-v2.71.zip`) — la licence Unix interdit de le mettre dans le dépôt public.
+
+```bash
+# Install
+bash <(curl -fsSL https://raw.githubusercontent.com/HeatzyV2/MasterPtero/main/unix-theme.sh) -y
+
+# Restore (dernier backup)
+bash <(curl -fsSL https://raw.githubusercontent.com/HeatzyV2/MasterPtero/main/unix-theme.sh) restore -y
+```
+
+Zip ailleurs, ou URL perso :
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/HeatzyV2/MasterPtero/main/unix-theme.sh) -y --zip /root/UnixTheme-v2.71.zip
+THEME_URL='https://exemple.com/UnixTheme-v2.71.zip' bash <(curl -fsSL https://raw.githubusercontent.com/HeatzyV2/MasterPtero/main/unix-theme.sh) -y
+```
+
+Backups : `/var/backups/pterodactyl-themes/` (5 derniers conservés). Réglages Unix : `/admin/unix`.
+
 ### Installation manuelle
 
 ```bash
