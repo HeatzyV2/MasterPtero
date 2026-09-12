@@ -53,18 +53,18 @@ Backup du panel, retrait des autres thèmes, install Unix, **restore auto si ça
 Place d’abord le zip sur le VPS (`/root/UnixTheme-v2.71.zip`) — la licence Unix interdit de le mettre dans le dépôt public.
 
 ```bash
-# Install
-bash <(curl -fsSL https://raw.githubusercontent.com/HeatzyV2/MasterPtero/main/unix-theme.sh) -y
+# Install (sur le VPS, en root — pas sous Windows)
+curl -fsSL -o /tmp/unix-theme.sh https://raw.githubusercontent.com/HeatzyV2/MasterPtero/main/unix-theme.sh && bash /tmp/unix-theme.sh -y
 
 # Restore (dernier backup)
-bash <(curl -fsSL https://raw.githubusercontent.com/HeatzyV2/MasterPtero/main/unix-theme.sh) restore -y
+bash /tmp/unix-theme.sh restore -y
 ```
 
 Zip ailleurs, ou URL perso :
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/HeatzyV2/MasterPtero/main/unix-theme.sh) -y --zip /root/UnixTheme-v2.71.zip
-THEME_URL='https://exemple.com/UnixTheme-v2.71.zip' bash <(curl -fsSL https://raw.githubusercontent.com/HeatzyV2/MasterPtero/main/unix-theme.sh) -y
+bash /tmp/unix-theme.sh -y --zip /root/UnixTheme-v2.71.zip
+THEME_URL='https://exemple.com/UnixTheme-v2.71.zip' bash /tmp/unix-theme.sh -y
 ```
 
 Backups : `/var/backups/pterodactyl-themes/` (5 derniers conservés). Réglages Unix : `/admin/unix`.

@@ -4,8 +4,8 @@
 # One-liner : installe Unix après backup, retire les autres thèmes, restore
 # si l'install plante.
 #
-#   bash <(curl -fsSL https://raw.githubusercontent.com/HeatzyV2/MasterPtero/main/unix-theme.sh) -y
-#   bash <(curl -fsSL https://raw.githubusercontent.com/HeatzyV2/MasterPtero/main/unix-theme.sh) restore -y
+#   curl -fsSL -o /tmp/unix-theme.sh https://raw.githubusercontent.com/HeatzyV2/MasterPtero/main/unix-theme.sh && bash /tmp/unix-theme.sh -y
+#   bash /tmp/unix-theme.sh restore -y
 # =============================================================================
 set -euo pipefail
 
@@ -166,7 +166,16 @@ panel_version() {
   echo "${ver}"
 }
 
+# Webpack du panel (loader-utils MD4) casse sur OpenSSL 3 / Node 17+.
+setup_node_env() {
+  local opts="${NODE_OPTIONS:-}"
+  [[ "${opts}" == *openssl-legacy-provider* ]] || opts="${opts} --openssl-legacy-provider"
+  [[ "${opts}" == *max-old-space-size* ]] || opts="${opts} --max-old-space-size=2048"
+  export NODE_OPTIONS="${opts# }"
+}
+
 ensure_node_yarn() {
+  setup_node_env
   if command -v yarn >/dev/null && command -v node >/dev/null; then
     ok "Node $(node -v) · Yarn $(yarn --version 2>/dev/null || echo '?')"
     return 0
@@ -183,6 +192,7 @@ ensure_node_yarn() {
   command -v node >/dev/null || fail "Node.js introuvable après installation"
   npm i -g yarn >/dev/null 2>&1 || npm i -g yarn
   command -v yarn >/dev/null || fail "Yarn introuvable après installation"
+  setup_node_env
 }
 
 artisan() {
@@ -251,9 +261,11 @@ restore_from() {
   local archive="$1"
   [[ -f "${archive}" ]] || fail "Backup introuvable : ${archive}"
   DOING_RESTORE=1
-  info "Restore depuis ${archive}"
-  panel_down
+  info "Restore depuis ${archive} (tar d'abord — artisan peut être cassé)"
   tar -xzf "${archive}" -C "$(dirname "${PTERO}")"
+  rm -f "${PTERO}/bootstrap/cache/packages.php" \
+        "${PTERO}/bootstrap/cache/services.php" \
+        "${PTERO}/bootstrap/cache/config.php" 2>/dev/null || true
   (cd "${PTERO}" && composer dump-autoload -o >/dev/null 2>&1 || true)
   if [[ "${SKIP_BUILD}" != "1" ]] && [[ -f "${PTERO}/package.json" ]]; then
     info "Rebuild des assets après restore..."
@@ -355,11 +367,11 @@ La licence Unix interdit de republier le thème dans le dépôt public.
 Envoie ton zip sur le VPS puis relance :
 
   scp UnixTheme-v2.71.zip root@TON_VPS:/root/${ZIP_NAME}
-  bash <(curl -fsSL https://raw.githubusercontent.com/HeatzyV2/MasterPtero/main/unix-theme.sh) -y
+  curl -fsSL -o /tmp/unix-theme.sh https://raw.githubusercontent.com/HeatzyV2/MasterPtero/main/unix-theme.sh && bash /tmp/unix-theme.sh -y
 
 Ou passe une URL que tu contrôles :
 
-  THEME_URL='https://exemple.com/${ZIP_NAME}' bash <(curl -fsSL https://raw.githubusercontent.com/HeatzyV2/MasterPtero/main/unix-theme.sh) -y
+  THEME_URL='https://exemple.com/${ZIP_NAME}' bash /tmp/unix-theme.sh -y
 
 EOF
   fail "Zip Unix manquant"
@@ -381,6 +393,24 @@ extract_theme_src() {
 # -----------------------------------------------------------------------------
 # Retirer les thèmes existants
 # -----------------------------------------------------------------------------
+# Blueprint : jamais rm .blueprint tant que les providers PHP existent encore.
+disable_blueprint() {
+  [[ -d "${PTERO}/app/Providers/Blueprint" || -d "${PTERO}/.blueprint" ]] || return 0
+  info "Retrait de Blueprint (providers d'abord, sinon artisan casse)..."
+  rm -rf "${PTERO}/app/Providers/Blueprint"
+  rm -f "${PTERO}/.blueprintrc" /usr/local/bin/blueprint 2>/dev/null || true
+  if [[ -f "${PTERO}/config/app.php" ]]; then
+    sed -i '/Blueprint/d' "${PTERO}/config/app.php" || true
+  fi
+  if [[ -f "${PTERO}/bootstrap/providers.php" ]]; then
+    sed -i '/Blueprint/d' "${PTERO}/bootstrap/providers.php" || true
+  fi
+  rm -f "${PTERO}/bootstrap/cache/packages.php" \
+        "${PTERO}/bootstrap/cache/services.php" \
+        "${PTERO}/bootstrap/cache/config.php" 2>/dev/null || true
+  rm -rf "${PTERO}/.blueprint" "${PTERO}/public/assets/blueprint"
+}
+
 run_theme_uninstallers() {
   info "Désinstallation des thèmes connus (artisan / leftovers)..."
   (
@@ -393,6 +423,8 @@ run_theme_uninstallers() {
     php artisan nebula:restore --no-interaction >/dev/null 2>&1 || true
   ) || true
 
+  disable_blueprint
+
   rm -rf \
     "${PTERO}/app/Http/Controllers/Admin/Unix" \
     "${PTERO}/app/Http/Controllers/Admin/Nerm" \
@@ -400,8 +432,6 @@ run_theme_uninstallers() {
     "${PTERO}/resources/views/admin/unix" \
     "${PTERO}/resources/views/partials/unix" \
     "${PTERO}/resources/views/admin/nerm" \
-    "${PTERO}/.blueprint" \
-    "${PTERO}/public/assets/blueprint" \
     2>/dev/null || true
 
   if [[ -d "${PTERO}/public/themes" ]]; then
@@ -430,6 +460,9 @@ overlay_stock_frontend() {
       if [[ -d "${stock}/public/themes/pterodactyl" ]]; then
         mkdir -p "${PTERO}/public/themes"
         rsync -a --delete "${stock}/public/themes/pterodactyl/" "${PTERO}/public/themes/pterodactyl/"
+      fi
+      if [[ -d "${stock}/app/Providers" ]]; then
+        rsync -a --delete "${stock}/app/Providers/" "${PTERO}/app/Providers/"
       fi
       ok "Frontend stock appliqué"
       return 0
@@ -519,7 +552,8 @@ build_assets() {
   info "yarn install (peut prendre quelques minutes)..."
   (cd "${PTERO}" && yarn)
   info "yarn build:production (souvent 3–10 min)..."
-  export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=2048}"
+  setup_node_env
+  info "NODE_OPTIONS=${NODE_OPTIONS}"
   (cd "${PTERO}" && yarn build:production)
   ok "Assets compilés"
 }
@@ -573,7 +607,7 @@ print_done_install() {
   echo -e "  Admin     : ${BOLD}/admin/unix${NC}  (réglages Unix)"
   echo
   echo -e "${YELLOW}Restore si ça plante plus tard :${NC}"
-  echo -e "  bash <(curl -fsSL https://raw.githubusercontent.com/HeatzyV2/MasterPtero/main/unix-theme.sh) restore -y"
+  echo -e "  curl -fsSL -o /tmp/unix-theme.sh https://raw.githubusercontent.com/HeatzyV2/MasterPtero/main/unix-theme.sh && bash /tmp/unix-theme.sh restore -y"
   echo
   echo -e "${DIM}Unix v2.71 cible Pterodactyl ~1.6.x. Sur un panel récent, vide le cache navigateur.${NC}"
   echo -e "${DIM}Si la page blanche : relance le restore ci-dessus.${NC}"
