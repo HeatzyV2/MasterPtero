@@ -195,7 +195,24 @@ ensure_node_yarn() {
   setup_node_env
 }
 
+# Si Blueprint a été à moitié désinstallé, artisan casse. Stub minimal pour
+# pouvoir relancer php artisan, puis on retire proprement les providers.
+stub_blueprint_if_broken() {
+  local need=0
+  if [[ -f "${PTERO}/app/Providers/Blueprint/ExtensionfsConfigProvider.php" ]]; then
+    if [[ ! -f "${PTERO}/.blueprint/extensions/blueprint/private/extensionfs.php" ]]; then
+      need=1
+    fi
+  fi
+  [[ "${need}" -eq 1 ]] || return 0
+  warn "Blueprint cassé détecté — stub temporaire extensionfs.php"
+  mkdir -p "${PTERO}/.blueprint/extensions/blueprint/private"
+  printf '%s\n' '<?php' 'return [];' \
+    > "${PTERO}/.blueprint/extensions/blueprint/private/extensionfs.php"
+}
+
 artisan() {
+  stub_blueprint_if_broken
   (cd "${PTERO}" && php artisan "$@")
 }
 
@@ -263,6 +280,8 @@ restore_from() {
   DOING_RESTORE=1
   info "Restore depuis ${archive} (tar d'abord — artisan peut être cassé)"
   tar -xzf "${archive}" -C "$(dirname "${PTERO}")"
+  # Backup peut avoir été pris avec .blueprint déjà manquant
+  stub_blueprint_if_broken
   rm -f "${PTERO}/bootstrap/cache/packages.php" \
         "${PTERO}/bootstrap/cache/services.php" \
         "${PTERO}/bootstrap/cache/config.php" 2>/dev/null || true
@@ -393,11 +412,18 @@ extract_theme_src() {
 # -----------------------------------------------------------------------------
 # Retirer les thèmes existants
 # -----------------------------------------------------------------------------
-# Blueprint : jamais rm .blueprint tant que les providers PHP existent encore.
+# Blueprint : stub si cassé → retire providers → vide les caches → rm .blueprint
 disable_blueprint() {
-  [[ -d "${PTERO}/app/Providers/Blueprint" || -d "${PTERO}/.blueprint" ]] || return 0
+  stub_blueprint_if_broken
+  if [[ ! -d "${PTERO}/app/Providers/Blueprint" && ! -d "${PTERO}/.blueprint" ]]; then
+    # Providers peuvent encore être listés dans le cache Laravel
+    if ! grep -Rqs 'Blueprint\\\\' "${PTERO}/bootstrap/cache" "${PTERO}/config/app.php" 2>/dev/null; then
+      return 0
+    fi
+  fi
   info "Retrait de Blueprint (providers d'abord, sinon artisan casse)..."
   rm -rf "${PTERO}/app/Providers/Blueprint"
+  find "${PTERO}/app/Providers" -maxdepth 1 -iname '*blueprint*' -exec rm -rf {} + 2>/dev/null || true
   rm -f "${PTERO}/.blueprintrc" /usr/local/bin/blueprint 2>/dev/null || true
   if [[ -f "${PTERO}/config/app.php" ]]; then
     sed -i '/Blueprint/d' "${PTERO}/config/app.php" || true
@@ -405,14 +431,39 @@ disable_blueprint() {
   if [[ -f "${PTERO}/bootstrap/providers.php" ]]; then
     sed -i '/Blueprint/d' "${PTERO}/bootstrap/providers.php" || true
   fi
+  if [[ -f "${PTERO}/composer.json" ]]; then
+    # Retire les providers Blueprint du package discovery Laravel
+    php -r '
+      $f = $argv[1];
+      $j = json_decode(file_get_contents($f), true);
+      if (!is_array($j)) exit(0);
+      $changed = false;
+      foreach (["providers","aliases"] as $k) {
+        if (!isset($j["extra"]["laravel"][$k]) || !is_array($j["extra"]["laravel"][$k])) continue;
+        $n = array_values(array_filter($j["extra"]["laravel"][$k], function ($v) {
+          return stripos((string)$v, "Blueprint") === false;
+        }));
+        if ($n !== $j["extra"]["laravel"][$k]) { $j["extra"]["laravel"][$k] = $n; $changed = true; }
+      }
+      if ($changed) file_put_contents($f, json_encode($j, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES)."\n");
+    ' "${PTERO}/composer.json" || true
+  fi
   rm -f "${PTERO}/bootstrap/cache/packages.php" \
         "${PTERO}/bootstrap/cache/services.php" \
         "${PTERO}/bootstrap/cache/config.php" 2>/dev/null || true
   rm -rf "${PTERO}/.blueprint" "${PTERO}/public/assets/blueprint"
+  # Confirme que plus aucun provider Blueprint ne peut charger
+  if [[ -e "${PTERO}/app/Providers/Blueprint" ]]; then
+    fail "Impossible de supprimer app/Providers/Blueprint"
+  fi
+  ok "Blueprint retiré"
 }
 
 run_theme_uninstallers() {
   info "Désinstallation des thèmes connus (artisan / leftovers)..."
+  # Toujours Blueprint en premier — sinon artisan est mort
+  disable_blueprint
+
   (
     cd "${PTERO}"
     php artisan unix restore --no-interaction >/dev/null 2>&1 || true
@@ -423,6 +474,7 @@ run_theme_uninstallers() {
     php artisan nebula:restore --no-interaction >/dev/null 2>&1 || true
   ) || true
 
+  # Au cas où un artisan theme aurait remis des trucs Blueprint
   disable_blueprint
 
   rm -rf \
@@ -583,10 +635,16 @@ cmd_install() {
   overlay_stock_frontend
   apply_unix_files "${src}"
 
+  # Re-purge Blueprint au cas où l'overlay / rsync aurait laissé des restes
+  disable_blueprint
+
   if [[ -x "${PTERO}/vendor/bin/composer" ]] || command -v composer >/dev/null; then
     info "composer dump-autoload..."
     (cd "${PTERO}" && composer dump-autoload -o) || warn "dump-autoload a échoué (on continue)"
   fi
+  rm -f "${PTERO}/bootstrap/cache/packages.php" \
+        "${PTERO}/bootstrap/cache/services.php" \
+        "${PTERO}/bootstrap/cache/config.php" 2>/dev/null || true
 
   run_unix_migrate
   build_assets
@@ -633,6 +691,7 @@ main() {
   ensure_pkgs
 
   info "Panel : ${PTERO}  ·  user : ${WEB_USER}  ·  version : $(panel_version || echo '?')"
+  stub_blueprint_if_broken
   trap 'on_fail $?' EXIT
 
   case "${CMD}" in
